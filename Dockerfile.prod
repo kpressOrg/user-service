@@ -1,0 +1,28 @@
+FROM node:23-alpine3.20
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Set the working directory
+WORKDIR /app
+
+# Copy package.json and pnpm-lock.yaml
+COPY package*.json pnpm-lock.yaml ./
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy the rest of the application code
+COPY . .
+
+# Remove .env file if it exists
+RUN rm -f .env
+
+# Replace .env with .env.prod
+RUN cp .env.prod .env
+
+# Expose the port on which the server will run
+EXPOSE 3033
+
+# Start the backend server
+CMD ["pnpm", "start"]
