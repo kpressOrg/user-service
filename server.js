@@ -3,7 +3,7 @@ const dotenv = require("dotenv")
 const pgp = require("pg-promise")()
 const jwt = require("jsonwebtoken")
 const amqp = require("amqplib/callback_api")
-const bcrypt = require("bcrypt")
+const bcrypt = require("bcryptjs")
 const app = express()
 
 dotenv.config()
@@ -129,7 +129,7 @@ connectToDatabase()
           })
 
           // Update a user
-          app.put("/user/:id", async (req, res) => {
+          app.patch("/user/:id", async (req, res) => {
             const { id } = req.params
             const { username, password } = req.body
             try {

@@ -1,7 +1,7 @@
 FROM node:23-alpine3.20
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm node-pre-gyp
 
 # Set the working directory
 WORKDIR /app
