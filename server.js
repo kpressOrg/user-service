@@ -1,12 +1,44 @@
 const express = require("express")
+const cors = require("cors")
+const morgan = require("morgan")
+const { v4: uuidv4 } = require("uuid")
 const dotenv = require("dotenv")
 const pgp = require("pg-promise")()
 const jwt = require("jsonwebtoken")
 const amqp = require("amqplib/callback_api")
 const bcrypt = require("bcryptjs")
+const prom_client = require("prom-client")
+
+const register = new prom_client.Registry()
+
+const createCounter = (name, help) => {
+  const counter = new prom_client.Counter({ name, help })
+  register.registerMetric(counter)
+  return counter
+}
+
+const created_user = createCounter("create_user_counter", "Counter for the number of users created")
+const updated_user = createCounter("update_user_counter", "Counter for the number of users updated")
+const deleted_user = createCounter("delete_user_counter", "Counter for the number of users deleted")
+const read_user = createCounter("read_user_counter", "Counter for the number of users read")
+
+register.setDefaultLabels({
+  app: "user-service",
+})
+
+prom_client.collectDefaultMetrics({ register })
+
 const app = express()
 
 dotenv.config()
+
+app.use(express.json())
+app.use(
+  cors({
+    origin: "*",
+  })
+)
+app.use(morgan("dev"))
 
 const connectToDatabase = async (retries = 5, delay = 5000) => {
   while (retries) {
@@ -18,7 +50,7 @@ const connectToDatabase = async (retries = 5, delay = 5000) => {
       // Create the users table if it doesn't exist
       await db.none(`
         CREATE TABLE IF NOT EXISTS users (
-          id SERIAL PRIMARY KEY,
+          id UUID PRIMARY KEY,
           username VARCHAR(255) NOT NULL UNIQUE,
           password VARCHAR(255) NOT NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -57,6 +89,11 @@ connectToDatabase()
   .then((db) => {
     app.use(express.json())
 
+    app.get('/metrics', async (req, res) => {
+      res.setHeader('Content-type', register.contentType);
+      res.end(await register.metrics());
+    });
+
     app.get("/", (req, res) => {
       res.json("user service")
     })
@@ -84,7 +121,9 @@ connectToDatabase()
                 return res.status(400).json({ message: "Username already exists" })
               }
               const hashedPassword = await bcrypt.hash(password, 10)
-              await db.none("INSERT INTO users(username, password) VALUES($1, $2)", [username, hashedPassword])
+              const userId = uuidv4()
+              await db.none("INSERT INTO users(id, username, password) VALUES($1, $2, $3)", [userId, username, hashedPassword])
+              created_user.inc()
               res.status(201).json({ message: "User registered successfully" })
 
               // Send message to RabbitMQ
@@ -121,6 +160,7 @@ connectToDatabase()
           app.get("/all", (req, res) => {
             db.any("SELECT * FROM users")
               .then((data) => {
+                read_user.inc()
                 res.status(200).json(data)
               })
               .catch((error) => {
@@ -135,6 +175,7 @@ connectToDatabase()
             try {
               const hashedPassword = await bcrypt.hash(password, 10)
               await db.none("UPDATE users SET username=$1, password=$2 WHERE id=$3", [username, hashedPassword, id])
+              updated_user.inc()
               res.status(200).json({ message: "User updated successfully" })
             } catch (error) {
               res.status(500).json({ error: error.message })
@@ -146,6 +187,7 @@ connectToDatabase()
             const { id } = req.params
             db.none("DELETE FROM users WHERE id=$1", [id])
               .then(() => {
+                deleted_user.inc()
                 res.status(204).json({ message: "User deleted successfully" })
               })
               .catch((error) => {
@@ -157,6 +199,7 @@ connectToDatabase()
           app.get("/users", (req, res) => {
             db.any("SELECT * FROM users")
               .then((data) => {
+                read_user.inc()
                 res.status(200).json(data)
               })
               .catch((error) => {
